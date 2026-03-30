@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rastreador de Gastos</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f3;
+      color: #1a1a18;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .container { max-width: 540px; margin: 0 auto; }
+    h1 { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #666; margin-bottom: 1.25rem; }
+
+    /* tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 1.25rem; border-bottom: 1px solid #e0e0db; }
+    .tab { font-size: 13px; color: #666; padding: 6px 14px; border-radius: 8px 8px 0 0; cursor: pointer; border: none; background: none; }
+    .tab.active { color: #1a1a18; font-weight: 500; background: #ebebea; }
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* form */
+    .add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    @media(max-width:480px){ .add-grid { grid-template-columns: 1fr; } }
+    .field label { font-size: 11px; color: #888; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em; }
+    .field input, .field select { width: 100%; font-size: 14px; padding: 8px 10px; border: 1px solid #d8d8d4; border-radius: 8px; background: #fff; color: #1a1a18; outline: none; }
+    .field input:focus, .field select:focus { border-color: #999; }
+    .field-full { grid-column: 1/-1; }
+    .btn-add { width: 100%; padding: 11px; font-size: 14px; font-weight: 500; color: #1a1a18; background: #ebebea; border: 1px solid #d8d8d4; border-radius: 8px; cursor: pointer; margin-top: 4px; }
+    .btn-add:hover { background: #e0e0db; }
+    .btn-add:active { transform: scale(.98); }
+
+    /* bars */
+    .cat-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #ebebea; }
+    .cat-row:last-child { border: none; }
+    .cat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .cat-name { font-size: 13px; color: #1a1a18; width: 130px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cat-bar-wrap { flex: 1; height: 5px; background: #e0e0db; border-radius: 3px; overflow: hidden; }
+    .cat-bar-fill { height: 100%; border-radius: 3px; transition: width .3s; }
+    .cat-vals { font-size: 11px; color: #888; white-space: nowrap; min-width: 100px; text-align: right; font-family: monospace; }
+    .cat-vals.over { color: #c0392b; }
+
+    /* metrics */
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 1.25rem; }
+    .mc { background: #ebebea; border-radius: 8px; padding: 12px 14px; }
+    .mc-label { font-size: 11px; color: #888; margin: 0 0 3px; }
+    .mc-val { font-size: 18px; font-weight: 500; color: #1a1a18; margin: 0; font-family: monospace; }
+    .mc-val.ok { color: #2e7d32; }
+    .mc-val.bad { color: #c0392b; }
+
+    /* history */
+    .tx-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #ebebea; }
+    .tx-row:last-child { border: none; }
+    .tx-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .tx-desc { font-size: 13px; color: #1a1a18; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tx-cat { font-size: 11px; color: #888; }
+    .tx-amt { font-size: 13px; font-weight: 500; color: #1a1a18; font-family: monospace; white-space: nowrap; }
+    .tx-del { font-size: 14px; color: #aaa; cursor: pointer; background: none; border: none; padding: 0 2px; }
+    .tx-del:hover { color: #c0392b; }
+    .empty { font-size: 13px; color: #aaa; text-align: center; padding: 2rem 0; }
+
+    /* month nav */
+    .month-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 1.25rem; }
+    .mnav-btn { font-size: 16px; background: none; border: 1px solid #d8d8d4; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; color: #1a1a18; }
+    .month-label { font-size: 14px; font-weight: 500; color: #1a1a18; flex: 1; text-align: center; }
+
+    /* settings */
+    .sett-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #ebebea; }
+    .sett-row:last-child { border: none; }
+    .sett-name { font-size: 13px; color: #1a1a18; flex: 1; }
+    .sett-row input[type=number] { width: 110px; text-align: right; font-family: monospace; font-size: 13px; padding: 6px 10px; border: 1px solid #d8d8d4; border-radius: 8px; background: #fff; color: #1a1a18; }
+    .sett-income { display: flex; align-items: center; gap: 10px; background: #ebebea; border-radius: 8px; padding: 10px 14px; margin-bottom: 1.25rem; }
+    .sett-income label { font-size: 13px; color: #666; flex: 1; }
+    .sett-income input { width: 130px; text-align: right; font-size: 16px; font-weight: 500; font-family: monospace; padding: 4px 8px; border: 1px solid #d8d8d4; border-radius: 6px; background: #fff; }
+    .btn-save { font-size: 13px; padding: 8px 20px; margin-top: 12px; border-radius: 8px; cursor: pointer; border: 1px solid #d8d8d4; background: #ebebea; color: #1a1a18; }
+    .btn-save:hover { background: #e0e0db; }
+    .btn-danger { color: #c0392b; margin-left: 8px; }
+    .section-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .05em; margin: 0 0 8px; }
+
+    .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: #1a1a18; color: #fff; font-size: 12px; padding: 8px 18px; border-radius: 99px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 99; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Rastreador de Gastos</h1>
+  <p class="sub">Lançamentos salvos no navegador</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('add')">+ Lançar</button>
+    <button class="tab" onclick="showTab('dash')">Resumo</button>
+    <button class="tab" onclick="showTab('hist')">Histórico</button>
+    <button class="tab" onclick="showTab('sett')">Orçamento</button>
+  </div>
+
+  <!-- ADD -->
+  <div id="view-add" class="view active">
+    <div class="add-grid">
+      <div class="field">
+        <label>Categoria</label>
+        <select id="f-cat"></select>
+      </div>
+      <div class="field">
+        <label>Valor (R$)</label>
+        <input type="number" id="f-amt" placeholder="0,00" step="0.01" min="0">
+      </div>
+      <div class="field field-full">
+        <label>Descrição (opcional)</label>
+        <input type="text" id="f-desc" placeholder="ex: almoço no Tabuã, Uber p/ Valinhos...">
+      </div>
+      <div class="field">
+        <label>Data</label>
+        <input type="date" id="f-date">
+      </div>
+    </div>
+    <button class="btn-add" onclick="addTx()">Registrar gasto</button>
+    <div style="margin-top:1.5rem;">
+      <p class="section-label">Este mês até agora</p>
+      <div id="quick-bars"></div>
+    </div>
+  </div>
+
+  <!-- DASH -->
+  <div id="view-dash" class="view">
+    <div class="month-nav">
+      <button class="mnav-btn" onclick="changeMonth(-1)">‹</button>
+      <span class="month-label" id="dash-month"></span>
+      <button class="mnav-btn" onclick="changeMonth(1)">›</button>
+    </div>
+    <div class="metrics" id="dash-metrics"></div>
+    <p class="section-label">Por categoria</p>
+    <div id="dash-cats"></div>
+  </div>
+
+  <!-- HIST -->
+  <div id="view-hist" class="view">
+    <div class="month-nav">
+      <button class="mnav-btn" onclick="changeMonth(-1)">‹</button>
+      <span class="month-label" id="hist-month"></span>
+      <button class="mnav-btn" onclick="changeMonth(1)">›</button>
+    </div>
+    <div id="hist-list"></div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="view-sett" class="view">
+    <div class="sett-income">
+      <label>Renda líquida mensal &nbsp;R$</label>
+      <input type="number" id="sett-income" step="100" min="0">
+    </div>
+    <p class="section-label">Limite por categoria</p>
+    <div id="sett-cats"></div>
+    <div style="margin-top:12px;">
+      <button class="btn-save" onclick="saveSettings()">Salvar orçamento</button>
+      <button class="btn-save btn-danger" onclick="clearData()">Apagar tudo</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const DEFAULT_CONFIG = {
+  income: 10000,
+  cats: [
+    { id:'financ', name:'Financiamento', color:'#378ADD', budget:1200 },
+    { id:'assina', name:'Assinaturas',   color:'#7F77DD', budget:150  },
+    { id:'alim',   name:'Alimentação / bares', color:'#D85A30', budget:2500 },
+    { id:'transp', name:'Transporte / Uber',   color:'#BA7517', budget:800  },
+    { id:'super',  name:'Supermercado',  color:'#639922', budget:600  },
+    { id:'saude',  name:'Saúde',         color:'#1D9E75', budget:300  },
+    { id:'lazer',  name:'Lazer',         color:'#D4537E', budget:400  },
+    { id:'invest', name:'Investimentos', color:'#27500A', budget:2000 },
+    { id:'outros', name:'Outros',        color:'#888780', budget:300  },
+  ]
+};
+
+const STORAGE_KEY = 'ob_config';
+const TX_KEY = 'ob_txs';
+
+let config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+let txs = [];
+let viewMonth = new Date(); viewMonth.setDate(1);
+
+function load() {
+  try { const r = localStorage.getItem(STORAGE_KEY); if(r) config = JSON.parse(r); } catch(e){}
+  try { const r = localStorage.getItem(TX_KEY); if(r) txs = JSON.parse(r); } catch(e){}
+  init();
+}
+
+function persist() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(config)); } catch(e){}
+  try { localStorage.setItem(TX_KEY, JSON.stringify(txs)); } catch(e){}
+}
+
+function monthKey(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+}
+function monthLabel(d) { return d.toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); }
+function txsForMonth(d) { return txs.filter(t=>monthKey(t.date)===monthKey(d)); }
+function spentByCat(list) { const m={}; list.forEach(t=>{ m[t.cat]=(m[t.cat]||0)+t.amt; }); return m; }
+function fmt(n) { return 'R$ '+Math.round(n).toLocaleString('pt-BR'); }
+
+function init() {
+  document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
+  buildCatSelect();
+  buildSettingsView();
+  renderAll();
+}
+
+function buildCatSelect() {
+  document.getElementById('f-cat').innerHTML = config.cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+}
+
+function buildSettingsView() {
+  document.getElementById('sett-income').value = config.income;
+  document.getElementById('sett-cats').innerHTML = config.cats.map(c=>`
+    <div class="sett-row">
+      <span class="cat-dot" style="background:${c.color}"></span>
+      <span class="sett-name">${c.name}</span>
+      <input type="number" id="sett-${c.id}" value="${c.budget}" step="50" min="0">
+    </div>`).join('');
+}
+
+function saveSettings() {
+  config.income = parseFloat(document.getElementById('sett-income').value)||0;
+  config.cats.forEach(c=>{ const el=document.getElementById('sett-'+c.id); if(el) c.budget=parseFloat(el.value)||0; });
+  persist(); renderAll(); toast('Orçamento salvo!');
+}
+
+function clearData() {
+  if(!confirm('Apagar todas as transações?')) return;
+  txs=[]; persist(); renderAll(); toast('Dados apagados');
+}
+
+function addTx() {
+  const cat=document.getElementById('f-cat').value;
+  const amt=parseFloat(document.getElementById('f-amt').value);
+  const desc=document.getElementById('f-desc').value.trim();
+  const date=document.getElementById('f-date').value;
+  if(!amt||amt<=0){ toast('Informe um valor válido'); return; }
+  txs.unshift({id:Date.now(),cat,amt,desc,date});
+  persist();
+  document.getElementById('f-amt').value='';
+  document.getElementById('f-desc').value='';
+  renderAll(); toast('Registrado!');
+}
+
+function delTx(id) { txs=txs.filter(t=>t.id!==id); persist(); renderAll(); }
+
+function changeMonth(d) { viewMonth.setMonth(viewMonth.getMonth()+d); renderAll(); }
+
+function renderAll() { renderQuickBars(); renderDash(); renderHist(); }
+
+function renderBars(container, list) {
+  const spent = spentByCat(list);
+  document.getElementById(container).innerHTML = config.cats.map(c=>{
+    const s=spent[c.id]||0;
+    const pct=c.budget>0?Math.min((s/c.budget)*100,100):0;
+    const over=s>c.budget&&c.budget>0;
+    return `<div class="cat-row">
+      <span class="cat-dot" style="background:${c.color}"></span>
+      <span class="cat-name">${c.name}</span>
+      <div class="cat-bar-wrap"><div class="cat-bar-fill" style="width:${pct.toFixed(1)}%;background:${over?'#c0392b':c.color}"></div></div>
+      <span class="cat-vals ${over?'over':''}">${fmt(s)} / ${fmt(c.budget)}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderQuickBars() { renderBars('quick-bars', txsForMonth(new Date())); }
+
+function renderDash() {
+  document.getElementById('dash-month').textContent = monthLabel(viewMonth);
+  document.getElementById('hist-month').textContent = monthLabel(viewMonth);
+  const list=txsForMonth(viewMonth);
+  const spent=spentByCat(list);
+  const totalSpent=Object.values(spent).reduce((a,b)=>a+b,0);
+  const invest=spent['invest']||0;
+  const despesas=totalSpent-invest;
+  const saldo=config.income-totalSpent;
+  document.getElementById('dash-metrics').innerHTML=`
+    <div class="mc"><p class="mc-label">Gastos</p><p class="mc-val">${fmt(despesas)}</p></div>
+    <div class="mc"><p class="mc-label">Investido</p><p class="mc-val">${fmt(invest)}</p></div>
+    <div class="mc"><p class="mc-label">Saldo</p><p class="mc-val ${saldo>=0?'ok':'bad'}">${fmt(saldo)}</p></div>`;
+  renderBars('dash-cats', list);
+}
+
+function renderHist() {
+  const list=txsForMonth(viewMonth);
+  const el=document.getElementById('hist-list');
+  if(!list.length){ el.innerHTML='<div class="empty">Nenhum lançamento neste mês</div>'; return; }
+  el.innerHTML=list.map(t=>{
+    const c=config.cats.find(x=>x.id===t.cat)||{color:'#888',name:t.cat};
+    const dt=new Date(t.date+'T12:00:00');
+    const dateStr=dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    return `<div class="tx-row">
+      <span class="tx-dot" style="background:${c.color}"></span>
+      <div style="flex:1;min-width:0;">
+        <div class="tx-desc">${t.desc||c.name}</div>
+        <div class="tx-cat">${c.name} · ${dateStr}</div>
+      </div>
+      <span class="tx-amt">− ${fmt(t.amt)}</span>
+      <button class="tx-del" onclick="delTx(${t.id})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function showTab(t) {
+  document.querySelectorAll('.tab').forEach((el,i)=>{ el.classList.toggle('active',['add','dash','hist','sett'][i]===t); });
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  document.getElementById('view-'+t).classList.add('active');
+  if(t==='sett') buildSettingsView();
+}
+
+function toast(msg) {
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2000);
+}
+
+load();
+</script>
+</body>
+</html>
