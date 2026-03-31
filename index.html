@@ -501,13 +501,18 @@ function renderDash(){
 }
 
 function renderPieChart(totalSpent, available, parcelSpent, effectiveLimit){
+  const otherSpent=Math.max(0,totalSpent-parcelSpent);
   const avail=Math.max(0,available);
-  const spent=Math.max(0,totalSpent);
 
-  const slices=[
-    {label:'Gasto no mês',value:spent,color:'#D85A30'},
-    {label:'Disponível',  value:avail,color:'#2a2a2a'},
-  ];
+  const allSlices=[
+    {label:'Despesas',     value:otherSpent,  color:'#D85A30'},
+    {label:'Parcelamentos',value:parcelSpent, color:'#E5B800'},
+    {label:'Disponível',   value:avail,       color:'#2a2a2a'},
+  ].sort((a,b)=>b.value-a.value);
+
+  // hide Parcelamentos slice if 0
+  const slices=allSlices.filter(s=>s.label!=='Parcelamentos'||s.value>0);
+
   const labels=slices.map(s=>s.label);
   const data=slices.map(s=>s.value);
   const colors=slices.map(s=>s.color);
@@ -532,14 +537,11 @@ function renderPieChart(totalSpent, available, parcelSpent, effectiveLimit){
     });
   }
 
-  const parcelLine=parcelSpent>0
-    ?`<span class="chart-leg-item" style="padding-left:16px;color:#888;"><span class="chart-leg-sq" style="background:#E5B800;"></span>incl. Parcelamentos: ${fmt(parcelSpent)} (${fmtPct(effectiveLimit>0?parcelSpent/effectiveLimit*100:0)})</span>`
-    :'';
   document.getElementById('pie-legend').innerHTML=slices.map(s=>`
     <span class="chart-leg-item">
       <span class="chart-leg-sq" style="background:${s.color};${s.color==='#2a2a2a'?'border:1px solid #444;':''}"></span>
       ${s.label}: ${fmt(s.value)} (${fmtPct(effectiveLimit>0?s.value/effectiveLimit*100:0)})
-    </span>`).join('')+parcelLine;
+    </span>`).join('');
 }
 // ── HISTÓRICO ─────────────────────────────────────────────
 function renderHist(){
