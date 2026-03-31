@@ -102,6 +102,11 @@
     .section-label{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px;}
     .hint{font-size:11px;color:#444;margin:0 0 10px;}
 
+    .sync-status{font-size:11px;color:#555;text-align:right;margin-bottom:.75rem;min-height:16px;}
+    .sync-status.syncing{color:#d4873a;}
+    .sync-status.ok{color:#4caf6e;}
+    .sync-status.err{color:#e05252;}
+
     .toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#e8e8e6;color:#111;font-size:12px;padding:8px 18px;border-radius:99px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:99;}
     .toast.show{opacity:1;}
   </style>
@@ -109,7 +114,8 @@
 <body>
 <div class="container">
   <h1>Controle de Fatura</h1>
-  <p class="sub">Lançamentos salvos no navegador</p>
+  <div class="sync-status" id="sync-status">Conectando...</div>
+
   <div class="tabs">
     <button class="tab active" onclick="showTab('add')">+ Lançar</button>
     <button class="tab" onclick="showTab('dash')">Dashboard</button>
@@ -185,7 +191,22 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script>
+// Firebase config
+firebase.initializeApp({
+  apiKey: "AIzaSyCK3BuN5oWawY52L_ElArDZBrmHmKPv99o",
+  authDomain: "ccmensal.firebaseapp.com",
+  projectId: "ccmensal",
+  storageBucket: "ccmensal.firebasestorage.app",
+  messagingSenderId: "892834592370",
+  appId: "1:892834592370:web:e08f0173d9a5c3ae04f4eb"
+});
+const db = firebase.firestore();
+const docConfig = db.collection('app').doc('config');
+const docTxs    = db.collection('app').doc('txs');
+
 const DEFAULT_CONFIG={limit:8500,cats:[
   {id:'alim',  name:'Alimentação / bares', color:'#D85A30', pct:30},
   {id:'financ',name:'Financiamento',        color:'#378ADD', pct:14},
@@ -196,19 +217,46 @@ const DEFAULT_CONFIG={limit:8500,cats:[
   {id:'outros',name:'Outros',               color:'#888780', pct:4},
   {id:'assina',name:'Assinaturas',          color:'#7F77DD', pct:2},
 ]};
-const SK='ob_cfg7',TK='ob_txs7';
+
 let config=JSON.parse(JSON.stringify(DEFAULT_CONFIG)),txs=[],viewMonth=new Date();
 viewMonth.setDate(1);
 
-function load(){
-  try{const r=localStorage.getItem(SK);if(r)config=JSON.parse(r);}catch(e){}
-  try{const r=localStorage.getItem(TK);if(r)txs=JSON.parse(r);}catch(e){}
+function setSyncStatus(state,msg){
+  const el=document.getElementById('sync-status');
+  el.textContent=msg;el.className='sync-status '+state;
+}
+
+async function load(){
+  setSyncStatus('syncing','Sincronizando...');
+  try{
+    const [cs,ts]=await Promise.all([docConfig.get(),docTxs.get()]);
+    if(cs.exists) config=cs.data();
+    if(ts.exists) txs=ts.data().list||[];
+    setSyncStatus('ok','Sincronizado');
+  }catch(e){
+    setSyncStatus('err','Sem conexão — dados locais');
+    try{const r=localStorage.getItem('ob_bkp_cfg');if(r)config=JSON.parse(r);}catch(_){}
+    try{const r=localStorage.getItem('ob_bkp_txs');if(r)txs=JSON.parse(r);}catch(_){}
+  }
   init();
 }
-function persist(){
-  try{localStorage.setItem(SK,JSON.stringify(config));}catch(e){}
-  try{localStorage.setItem(TK,JSON.stringify(txs));}catch(e){}
+
+async function persist(){
+  setSyncStatus('syncing','Salvando...');
+  // local backup
+  try{localStorage.setItem('ob_bkp_cfg',JSON.stringify(config));}catch(_){}
+  try{localStorage.setItem('ob_bkp_txs',JSON.stringify(txs));}catch(_){}
+  try{
+    await Promise.all([
+      docConfig.set(config),
+      docTxs.set({list:txs})
+    ]);
+    setSyncStatus('ok','Sincronizado');
+  }catch(e){
+    setSyncStatus('err','Erro ao salvar — verifique a conexão');
+  }
 }
+
 function catBudget(c){return config.limit*(c.pct/100);}
 function sortedCats(){return[...config.cats].sort((a,b)=>catBudget(b)-catBudget(a));}
 function monthKey(d){const dt=d instanceof Date?d:new Date(d);return`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;}
@@ -217,8 +265,16 @@ function txsForMonth(d){return txs.filter(t=>monthKey(t.date)===monthKey(d));}
 function spentByCat(list){const m={};list.forEach(t=>{m[t.cat]=(m[t.cat]||0)+t.amt;});return m;}
 function fmt(n){return'R$ '+Math.round(n).toLocaleString('pt-BR');}
 function fmtPct(p){return p===0?'0%':(p%1===0?p.toFixed(0):p.toFixed(2).replace(/0+$/,'').replace(/\.$/,''))+'%';}
-function init(){document.getElementById('f-date').value=new Date().toISOString().slice(0,10);buildCatSelect();renderAll();}
-function buildCatSelect(){document.getElementById('f-cat').innerHTML=sortedCats().map(c=>`<option value="${c.id}">${c.name}</option>`).join('');}
+
+function init(){
+  document.getElementById('f-date').value=new Date().toISOString().slice(0,10);
+  buildCatSelect();renderAll();
+}
+
+function buildCatSelect(){
+  document.getElementById('f-cat').innerHTML=sortedCats().map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+}
+
 function buildSettingsView(){
   const lim=config.limit;
   document.getElementById('sett-limit').value=lim;
@@ -237,6 +293,7 @@ function buildSettingsView(){
     </div>`).join('');
   updatePctPreview();
 }
+
 function updatePctPreview(){
   const lim=parseFloat(document.getElementById('sett-limit')?.value)||0;
   let sum=0;
@@ -254,10 +311,12 @@ function updatePctPreview(){
   const avail=Math.max(0,lim-sum);
   rem.innerHTML=usedPct>100?`<span style="color:#e05252;font-weight:500;">Excede em ${fmt(sum-lim)}</span>`:`Disponível: <b>${fmt(avail)}</b>`;
 }
+
 function updateNewCatPct(){
   const lim=parseFloat(document.getElementById('sett-limit')?.value)||0,v=parseFloat(document.getElementById('nc-val').value)||0;
   document.getElementById('nc-pct-badge').textContent=lim>0?fmtPct(v/lim*100):'—';
 }
+
 function addCategory(){
   const name=document.getElementById('nc-name').value.trim(),color=document.getElementById('nc-color').value,val=parseFloat(document.getElementById('nc-val').value)||0;
   if(!name){toast('Digite o nome da categoria');return;}
@@ -268,11 +327,14 @@ function addCategory(){
   document.getElementById('nc-name').value='';document.getElementById('nc-val').value='';document.getElementById('nc-pct-badge').textContent='—';
   buildSettingsView();buildCatSelect();toast(`"${name}" adicionada`);
 }
+
 function removeCategory(id){
   const c=config.cats.find(x=>x.id===id);
   if(!c||!confirm(`Remover "${c.name}"?`))return;
-  config.cats=config.cats.filter(x=>x.id!==id);buildSettingsView();buildCatSelect();toast(`"${c.name}" removida`);
+  config.cats=config.cats.filter(x=>x.id!==id);
+  buildSettingsView();buildCatSelect();toast(`"${c.name}" removida`);
 }
+
 function saveSettings(){
   const lim=parseFloat(document.getElementById('sett-limit').value)||0;let sum=0;
   config.cats.forEach(c=>{
@@ -283,17 +345,25 @@ function saveSettings(){
   config.limit=lim;config.cats.sort((a,b)=>catBudget(b)-catBudget(a));
   persist();buildCatSelect();renderAll();toast('Orçamento salvo!');
 }
-function clearData(){if(!confirm('Apagar todas as transações?'))return;txs=[];persist();renderAll();toast('Dados apagados');}
+
+function clearData(){
+  if(!confirm('Apagar todas as transações?'))return;
+  txs=[];persist();renderAll();toast('Dados apagados');
+}
+
 function addTx(){
   const cat=document.getElementById('f-cat').value,amt=parseFloat(document.getElementById('f-amt').value),desc=document.getElementById('f-desc').value.trim(),date=document.getElementById('f-date').value;
   if(!amt||amt<=0){toast('Informe um valor válido');return;}
-  txs.unshift({id:Date.now(),cat,amt,desc,date});persist();
+  txs.unshift({id:Date.now(),cat,amt,desc,date});
+  persist();
   document.getElementById('f-amt').value='';document.getElementById('f-desc').value='';
   renderAll();toast('Registrado!');
 }
+
 function delTx(id){txs=txs.filter(t=>t.id!==id);persist();renderAll();}
 function changeMonth(d){viewMonth.setMonth(viewMonth.getMonth()+d);renderAll();}
 function renderAll(){renderQuickBars();renderDash();renderHist();}
+
 function renderBars(container,list){
   const spent=spentByCat(list);
   document.getElementById(container).innerHTML=sortedCats().map(c=>{
@@ -301,7 +371,9 @@ function renderBars(container,list){
     return`<div class="cat-row"><span class="cat-dot" style="background:${c.color}"></span><span class="cat-name">${c.name}</span><div class="cat-bar-wrap"><div class="cat-bar-fill" style="width:${pct.toFixed(1)}%;background:${over?'#e05252':c.color}"></div></div><span class="cat-vals ${over?'over':''}">${fmt(s)} / ${fmt(b)}</span></div>`;
   }).join('');
 }
+
 function renderQuickBars(){renderBars('quick-bars',txsForMonth(new Date()));}
+
 function renderDash(){
   document.getElementById('dash-month').textContent=monthLabel(viewMonth);
   document.getElementById('hist-month').textContent=monthLabel(viewMonth);
@@ -315,6 +387,7 @@ function renderDash(){
   document.getElementById('limit-bar').style.cssText=`width:${usedPct.toFixed(1)}%;background:${barColor}`;
   renderBars('dash-cats',list);
 }
+
 function renderHist(){
   const list=txsForMonth(viewMonth),el=document.getElementById('hist-list');
   if(!list.length){el.innerHTML='<div class="empty">Nenhum lançamento neste mês</div>';return;}
@@ -324,13 +397,20 @@ function renderHist(){
     return`<div class="tx-row"><span class="tx-dot" style="background:${c.color}"></span><div class="tx-info"><div class="tx-desc">${t.desc||c.name}</div><div class="tx-cat">${c.name} · ${dateStr}</div></div><span class="tx-amt">− ${fmt(t.amt)}</span><button class="tx-del" onclick="delTx(${t.id})">✕</button></div>`;
   }).join('');
 }
+
 function showTab(t){
   document.querySelectorAll('.tab').forEach((el,i)=>{el.classList.toggle('active',['add','dash','hist','sett'][i]===t);});
   document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
   document.getElementById('view-'+t).classList.add('active');
   if(t==='sett')buildSettingsView();
 }
-function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2000);}
+
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2000);
+}
+
 load();
 </script>
 </body>
