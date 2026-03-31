@@ -239,7 +239,6 @@ try{
 
 const FIXED_ID='parcel';
 const DEFAULT_CONFIG={limit:8500,cats:[
-  {id:'parcel', name:'Parcelamentos',  color:'#E5B800', pct:14, fixed:true},
   {id:'alim',   name:'Alimentação',    color:'#D85A30', pct:20},
   {id:'transp', name:'Transporte',     color:'#BA7517', pct:10},
   {id:'lazer',  name:'Lazer',          color:'#D4537E', pct:5},
@@ -265,14 +264,13 @@ async function load(){
     const[cs,ts]=await Promise.all([docConfig.get(),docTxs.get()]);
     if(cs.exists){
       const d=cs.data();
-      if(d.cats) d.cats=d.cats.map(c=>({...c,fixed:c.id===FIXED_ID}));
       config=d;
     }
     if(ts.exists) txs=ts.data().list||[];
     setSyncStatus('ok','Sincronizado');
   }catch(e){
     setSyncStatus('err','Sem conexão — dados locais');
-    try{const r=localStorage.getItem('ob_bkp_cfg');if(r){const d=JSON.parse(r);if(d.cats)d.cats=d.cats.map(c=>({...c,fixed:c.id===FIXED_ID}));config=d;}}catch(_){}
+    try{const r=localStorage.getItem('ob_bkp_cfg');if(r)config=JSON.parse(r);}catch(_){}
     try{const r=localStorage.getItem('ob_bkp_txs');if(r)txs=JSON.parse(r);}catch(_){}
   }
   init();
@@ -321,7 +319,9 @@ function init(){
 function buildCatSelect(){
   const spent=spentByCat(txsForMonth(new Date()));
   const sorted=sortedBySpend(config.cats,spent);
-  document.getElementById('f-cat').innerHTML=sorted.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  // Parcelamentos always first in dropdown as special category
+  const parcelOpt=`<option value="${FIXED_ID}">Parcelamentos</option>`;
+  document.getElementById('f-cat').innerHTML=parcelOpt+sorted.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
 }
 
 // ── SETTINGS ──────────────────────────────────────────────
@@ -373,7 +373,7 @@ function addCategory(){
   const lim=parseFloat(document.getElementById('sett-limit').value)||config.limit;
   const curSum=config.cats.reduce((s,c)=>{const el=document.getElementById('sett-'+c.id);return s+(el?parseFloat(el.value)||0:catBudget(c));},0);
   if(lim>0&&(curSum+val)>lim){toast('Soma ultrapassaria o limite');return;}
-  config.cats.push({id:'cat_'+Date.now(),name,color,pct:lim>0?val/lim*100:0,fixed:false});
+  config.cats.push({id:'cat_'+Date.now(),name,color,pct:lim>0?val/lim*100:0});
   document.getElementById('nc-name').value='';document.getElementById('nc-val').value='';document.getElementById('nc-pct-badge').textContent='—';
   buildSettingsView();buildCatSelect();renderAll();toast(`"${name}" adicionada`);
 }
@@ -381,7 +381,6 @@ function addCategory(){
 function removeCategory(id){
   const c=config.cats.find(x=>x.id===id);
   if(!c)return;
-  if(c.fixed){toast('Parcelamentos é uma categoria fixa');return;}
   if(!confirm(`Remover "${c.name}"?`))return;
   config.cats=config.cats.filter(x=>x.id!==id);
   buildSettingsView();buildCatSelect();renderAll();toast(`"${c.name}" removida`);
@@ -480,25 +479,24 @@ function renderDash(){
   document.getElementById('hist-month').textContent=monthLabel(viewMonth);
   const list=txsForMonth(viewMonth);
   const totalSpent=list.reduce((s,t)=>s+t.amt,0);
-  const available=config.limit-totalSpent;
-  const usedPct=config.limit>0?totalSpent/config.limit*100:0;
-  const availPct=config.limit>0?Math.max(0,available)/config.limit*100:0;
+  const parcelSpent=list.filter(t=>t.cat===FIXED_ID).reduce((s,t)=>s+t.amt,0);
+  const effectiveLimit=config.limit+parcelSpent; // parcelamentos somam ao limite
+  const available=effectiveLimit-totalSpent;
+  const usedPct=effectiveLimit>0?totalSpent/effectiveLimit*100:0;
+  const availPct=effectiveLimit>0?Math.max(0,available)/effectiveLimit*100:0;
   const barColor=usedPct>90?'#e05252':usedPct>70?'#d4873a':'#4caf6e';
 
   document.getElementById('dash-metrics').innerHTML=`
-    <div class="mc"><p class="mc-label">Limite</p><p class="mc-val">${fmt(config.limit)}</p><p class="mc-sub">100%</p></div>
+    <div class="mc"><p class="mc-label">Limite</p><p class="mc-val">${fmt(effectiveLimit)}</p><p class="mc-sub">${parcelSpent>0?'base + parcel.':'100%'}</p></div>
     <div class="mc"><p class="mc-label">Gasto no mês</p><p class="mc-val ${usedPct>90?'bad':''}">${fmt(totalSpent)}</p><p class="mc-sub ${usedPct>90?'bad':''}">${fmtPct(usedPct)} do limite</p></div>
     <div class="mc"><p class="mc-label">Disponível</p><p class="mc-val ${available>=0?'ok':'bad'}">${fmt(Math.abs(available))}</p><p class="mc-sub ${available>=0?'ok':'bad'}">${available>=0?fmtPct(availPct)+' restante':'excedido'}</p></div>`;
   document.getElementById('limit-bar').style.cssText=`width:${Math.min(usedPct,100).toFixed(1)}%;background:${barColor}`;
 
-  renderPieChart(totalSpent, available);
+  renderPieChart(totalSpent, available, parcelSpent, effectiveLimit);
   renderBars('dash-cats',list,sortedBySpend);
 }
 
-function renderPieChart(totalSpent, available){
-  const parcelCat=config.cats.find(c=>c.id===FIXED_ID);
-  const listMonth=txsForMonth(viewMonth);
-  const parcelSpent=listMonth.filter(t=>t.cat===FIXED_ID).reduce((s,t)=>s+t.amt,0);
+function renderPieChart(totalSpent, available, parcelSpent, effectiveLimit){
   const otherSpent=Math.max(0,totalSpent-parcelSpent);
   const avail=Math.max(0,available);
 
@@ -537,7 +535,7 @@ function renderPieChart(totalSpent, available){
   document.getElementById('pie-legend').innerHTML=slices.map(s=>`
     <span class="chart-leg-item">
       <span class="chart-leg-sq" style="background:${s.color};${s.color==='#2a2a2a'?'border:1px solid #444;':''}"></span>
-      ${s.label}: ${fmt(s.value)} (${fmtPct(config.limit>0?s.value/config.limit*100:0)})
+      ${s.label}: ${fmt(s.value)} (${fmtPct(effectiveLimit>0?s.value/effectiveLimit*100:0)})
     </span>`).join('');
 }
 
