@@ -484,6 +484,7 @@ function renderDash(){
   const list=txsForMonth(viewMonth);
   const totalSpent=list.reduce((s,t)=>s+t.amt,0);
   const parcelSpent=list.filter(t=>t.cat===FIXED_ID).reduce((s,t)=>s+t.amt,0);
+  const otherSpent=Math.max(0,totalSpent-parcelSpent);
   const effectiveLimit=config.limit+parcelSpent; // parcelamentos somam ao limite
   const available=effectiveLimit-totalSpent;
   const usedPct=effectiveLimit>0?totalSpent/effectiveLimit*100:0;
@@ -492,7 +493,7 @@ function renderDash(){
 
   document.getElementById('dash-metrics').innerHTML=`
     <div class="mc"><p class="mc-label">Limite</p><p class="mc-val">${fmt(effectiveLimit)}</p><p class="mc-sub">${parcelSpent>0?'base + parcel.':'100%'}</p></div>
-    <div class="mc"><p class="mc-label">Gasto no mês</p><p class="mc-val ${usedPct>90?'bad':''}">${fmt(totalSpent)}</p><p class="mc-sub ${usedPct>90?'bad':''}">${fmtPct(usedPct)} do limite</p></div>
+    <div class="mc"><p class="mc-label">Despesas do mês</p><p class="mc-val ${usedPct>90?'bad':''}">${fmt(otherSpent)}</p><p class="mc-sub ${usedPct>90?'bad':''}">${fmtPct(effectiveLimit>0?otherSpent/effectiveLimit*100:0)} do limite</p></div>
     <div class="mc"><p class="mc-label">Disponível</p><p class="mc-val ${available>=0?'ok':'bad'}">${fmt(Math.abs(available))}</p><p class="mc-sub ${available>=0?'ok':'bad'}">${available>=0?fmtPct(availPct)+' restante':'excedido'}</p></div>`;
   document.getElementById('limit-bar').style.cssText=`width:${Math.min(usedPct,100).toFixed(1)}%;background:${barColor}`;
 
