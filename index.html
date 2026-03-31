@@ -457,7 +457,7 @@ function renderAll(){renderQuickBars();renderDash();renderHist();}
 // ── BARRAS (lançar + dashboard) ───────────────────────────
 function renderBars(container,list,sortFn){
   const spent=spentByCat(list);
-  const cats=sortFn(config.cats,spent).filter(c=>!c.fixed&&(catBudget(c)>0||spent[c.id]>0));
+  const cats=sortFn(config.cats,spent).filter(c=>c.id!==FIXED_ID&&(catBudget(c)>0||spent[c.id]>0));
   document.getElementById(container).innerHTML=cats.length?cats.map(c=>{
     const s=spent[c.id]||0,b=catBudget(c),pct=b>0?Math.min((s/b)*100,100):0,over=s>b&&b>0;
     return`<div class="cat-row">
