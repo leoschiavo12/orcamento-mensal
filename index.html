@@ -93,14 +93,12 @@
     .sett-cat-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
     .sett-cat-top .cat-dot{cursor:pointer;}
     .sett-cat-top .cat-label{font-size:13px;color:#e8e8e6;flex:1;min-width:0;}
-    .cat-fixed-badge{font-size:10px;color:#444;margin-left:4px;}
     .btn-del-cat{background:none;border:none;cursor:pointer;color:#444;font-size:13px;padding:0 2px;font-family:inherit;}
     .btn-del-cat:hover{color:#e05252;}
     .sett-cat-bot{display:flex;align-items:center;gap:8px;padding-left:17px;}
     .sett-cat-bot input[type=number]{flex:1;font-size:13px;font-family:monospace;text-align:right;}
     .pct-badge{font-size:12px;font-family:monospace;color:#666;white-space:nowrap;min-width:46px;text-align:right;}
 
-    .fixed-divider{font-size:10px;color:#444;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 4px;padding-bottom:4px;border-bottom:1px solid #2a2a2a;}
 
     .new-cat-box{background:#1a1a1a;border-radius:8px;padding:12px 14px;margin-top:1rem;border:1px solid #2a2a2a;}
     .new-cat-box p{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px;}
@@ -180,6 +178,7 @@
       <button class="mnav-btn" onclick="changeMonth(1)">›</button>
     </div>
     <div id="hist-list"></div>
+    <div style="margin-top:1rem;"><button class="btn-save" onclick="exportCSV()">↓ Exportar histórico (CSV)</button></div>
   </div>
 
   <!-- ORÇAMENTO -->
@@ -193,11 +192,9 @@
       <span>Alocado: <b id="pct-used">0%</b></span>
       <span id="pct-rem-label">Disponível: <b>100%</b></span>
     </div>
-    <p class="section-label">Categorias fixas</p>
-    <p class="hint">Não podem ser removidas</p>
-    <div id="sett-cats-fixed"></div>
-    <p class="section-label" style="margin-top:1rem;">Outras categorias</p>
-    <div id="sett-cats-custom"></div>
+    <p class="section-label">Categorias</p>
+    <p class="hint">Digite o valor em R$ — a % é calculada automaticamente</p>
+    <div id="sett-cats"></div>
     <div class="new-cat-box">
       <p>Nova categoria</p>
       <div class="nc-row1">
@@ -234,19 +231,16 @@ const db=firebase.firestore();
 const docConfig=db.collection('app').doc('config');
 const docTxs=db.collection('app').doc('txs');
 
-// IDs de categorias fixas — não podem ser removidas
-const FIXED_IDS=['alim','transp','lazer','cuidado','super'];
-
 const DEFAULT_CONFIG={limit:8500,cats:[
-  {id:'alim',   name:'Alimentação',    color:'#D85A30', pct:28, fixed:true},
-  {id:'transp', name:'Transporte',     color:'#BA7517', pct:10, fixed:true},
-  {id:'lazer',  name:'Lazer',          color:'#D4537E', pct:5,  fixed:true},
-  {id:'cuidado',name:'Cuidado pessoal',color:'#1D9E75', pct:4,  fixed:true},
-  {id:'super',  name:'Supermercado',   color:'#639922', pct:8,  fixed:true},
-  {id:'financ', name:'Financiamento',  color:'#378ADD', pct:14, fixed:false},
-  {id:'assina', name:'Assinaturas',    color:'#7F77DD', pct:2,  fixed:false},
-  {id:'saude',  name:'Saúde',          color:'#1D9E75', pct:4,  fixed:false},
-  {id:'outros', name:'Outros',         color:'#888780', pct:4,  fixed:false},
+  {id:'alim',   name:'Alimentação',    color:'#D85A30', pct:28},
+  {id:'transp', name:'Transporte',     color:'#BA7517', pct:10},
+  {id:'lazer',  name:'Lazer',          color:'#D4537E', pct:5},
+  {id:'cuidado',name:'Cuidado pessoal',color:'#7F77DD', pct:4},
+  {id:'super',  name:'Supermercado',   color:'#639922', pct:8},
+  {id:'financ', name:'Financiamento',  color:'#378ADD', pct:14},
+  {id:'assina', name:'Assinaturas',    color:'#888780', pct:2},
+  {id:'saude',  name:'Saúde',          color:'#1D9E75', pct:4},
+  {id:'outros', name:'Outros',         color:'#666666', pct:4},
 ]};
 
 let config=JSON.parse(JSON.stringify(DEFAULT_CONFIG)),txs=[],viewMonth=new Date();
@@ -263,22 +257,20 @@ async function load(){
   try{
     const[cs,ts]=await Promise.all([docConfig.get(),docTxs.get()]);
     if(cs.exists){
-      const d=cs.data();
-      // ensure fixed flag is always correct
-      if(d.cats) d.cats=d.cats.map(c=>({...c,fixed:FIXED_IDS.includes(c.id)}));
-      config=d;
+      config=cs.data();
     }
     if(ts.exists) txs=ts.data().list||[];
     setSyncStatus('ok','Sincronizado');
   }catch(e){
     setSyncStatus('err','Sem conexão — dados locais');
-    try{const r=localStorage.getItem('ob_bkp_cfg');if(r){const d=JSON.parse(r);if(d.cats)d.cats=d.cats.map(c=>({...c,fixed:FIXED_IDS.includes(c.id)}));config=d;}}catch(_){}
+    try{const r=localStorage.getItem('ob_bkp_cfg');if(r)config=JSON.parse(r);}catch(_){}
     try{const r=localStorage.getItem('ob_bkp_txs');if(r)txs=JSON.parse(r);}catch(_){}
   }
   init();
 }
 
 async function persist(){
+  pruneOldTxs();
   setSyncStatus('syncing','Salvando...');
   try{localStorage.setItem('ob_bkp_cfg',JSON.stringify(config));}catch(_){}
   try{localStorage.setItem('ob_bkp_txs',JSON.stringify(txs));}catch(_){}
@@ -326,31 +318,19 @@ function buildCatSelect(){
 function buildSettingsView(){
   const lim=config.limit;
   document.getElementById('sett-limit').value=lim;
-
-  const fixed=config.cats.filter(c=>c.fixed);
-  const custom=sortedByBudget(config.cats.filter(c=>!c.fixed));
-
-  function catRow(c){
-    const val=(lim*c.pct/100).toFixed(2);
-    const delBtn=c.fixed?`<span class="cat-fixed-badge">fixo</span>`:`<button class="btn-del-cat" onclick="removeCategory('${c.id}')">✕</button>`;
-    return`<div class="sett-cat-item">
+  document.getElementById('sett-cats').innerHTML=sortedByBudget(config.cats).map(c=>`
+    <div class="sett-cat-item">
       <div class="sett-cat-top">
         <span class="cat-dot" id="dot-${c.id}" style="background:${c.color};cursor:pointer;" onclick="document.getElementById('cp-${c.id}').click()"></span>
         <input type="color" id="cp-${c.id}" value="${c.color}" style="display:none;" oninput="document.getElementById('dot-${c.id}').style.background=this.value;">
         <span class="cat-label">${c.name}</span>
-        ${delBtn}
+        <button class="btn-del-cat" onclick="removeCategory('${c.id}')">✕</button>
       </div>
       <div class="sett-cat-bot">
-        <input type="number" id="sett-${c.id}" value="${val}" step="10" min="0" oninput="updatePctPreview()">
+        <input type="number" id="sett-${c.id}" value="${(lim*c.pct/100).toFixed(2)}" step="10" min="0" oninput="updatePctPreview()">
         <span class="pct-badge" id="pb-${c.id}">${fmtPct(c.pct)}</span>
       </div>
-    </div>`;
-  }
-
-  document.getElementById('sett-cats-fixed').innerHTML=fixed.map(catRow).join('');
-  document.getElementById('sett-cats-custom').innerHTML=custom.length
-    ? custom.map(catRow).join('')
-    : '<p style="font-size:13px;color:#555;padding:8px 0;">Nenhuma categoria adicional</p>';
+    </div>`).join('');
   updatePctPreview();
 }
 
@@ -383,15 +363,14 @@ function addCategory(){
   const lim=parseFloat(document.getElementById('sett-limit').value)||config.limit;
   const curSum=config.cats.reduce((s,c)=>{const el=document.getElementById('sett-'+c.id);return s+(el?parseFloat(el.value)||0:catBudget(c));},0);
   if(lim>0&&(curSum+val)>lim){toast('Soma ultrapassaria o limite');return;}
-  config.cats.push({id:'cat_'+Date.now(),name,color,pct:lim>0?val/lim*100:0,fixed:false});
+  config.cats.push({id:'cat_'+Date.now(),name,color,pct:lim>0?val/lim*100:0});
   document.getElementById('nc-name').value='';document.getElementById('nc-val').value='';document.getElementById('nc-pct-badge').textContent='—';
   buildSettingsView();buildCatSelect();renderAll();toast(`"${name}" adicionada`);
 }
 
 function removeCategory(id){
   const c=config.cats.find(x=>x.id===id);
-  if(!c||c.fixed){toast('Categoria fixa não pode ser removida');return;}
-  if(!confirm(`Remover "${c.name}"?`))return;
+  if(!c||!confirm(`Remover "${c.name}"?`))return;
   config.cats=config.cats.filter(x=>x.id!==id);
   buildSettingsView();buildCatSelect();renderAll();toast(`"${c.name}" removida`);
 }
@@ -412,6 +391,34 @@ function clearData(){
   txs=[];persist();renderAll();toast('Dados apagados');
 }
 
+// ── UTILITÁRIOS ──────────────────────────────────────────
+// Mantém apenas os últimos 12 meses completos + mês atual
+function pruneOldTxs(){
+  const cutoff=new Date();
+  cutoff.setMonth(cutoff.getMonth()-12);
+  cutoff.setDate(1); cutoff.setHours(0,0,0,0);
+  const cutoffKey=monthKey(cutoff);
+  txs=txs.filter(t=>monthKey(t.date)>=cutoffKey);
+}
+
+function exportCSV(){
+  if(!txs.length){toast('Nenhum dado para exportar');return;}
+  const rows=[['Data','Categoria','Descrição','Valor (R$)']];
+  [...txs].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
+    const c=config.cats.find(x=>x.id===t.cat)||{name:'Sem categoria'};
+    rows.push([t.date, c.name, t.desc||'', t.amt.toFixed(2).replace('.',',')]);
+  });
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(';')).join('
+');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download='fatura_historico_'+new Date().toISOString().slice(0,7)+'.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Exportado!');
+}
+
 // ── LANÇAMENTOS ───────────────────────────────────────────
 function addTx(){
   const cat=document.getElementById('f-cat').value,amt=parseFloat(document.getElementById('f-amt').value),desc=document.getElementById('f-desc').value.trim(),date=document.getElementById('f-date').value;
@@ -424,7 +431,15 @@ function addTx(){
 }
 
 function delTx(id){txs=txs.filter(t=>t.id!==id);persist();buildCatSelect();renderAll();}
-function changeMonth(d){viewMonth.setMonth(viewMonth.getMonth()+d);renderAll();}
+function changeMonth(d){
+  const next=new Date(viewMonth);
+  next.setMonth(next.getMonth()+d);
+  next.setDate(1);
+  const now=new Date(); now.setDate(1); now.setHours(0,0,0,0);
+  if(next>now) return; // não navega para o futuro
+  viewMonth=next;
+  renderAll();
+}
 
 function renderAll(){renderQuickBars();renderDash();renderHist();}
 
@@ -506,9 +521,10 @@ function renderHist(){
   const list=txsForMonth(viewMonth);
   const el=document.getElementById('hist-list');
   if(!list.length){el.innerHTML='<div class="empty">Nenhum lançamento neste mês</div>';return;}
-  el.innerHTML=list.map(t=>{
+  const sorted=[...list].sort((a,b)=>b.date.localeCompare(a.date));
+  el.innerHTML=sorted.map(t=>{
     const c=config.cats.find(x=>x.id===t.cat)||{color:'#555',name:'Sem categoria'};
-    const dt=new Date(t.date+'T12:00:00'),dateStr=dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const dt=new Date(t.date+'T12:00:00'),dateStr=dt.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
     return`<div class="tx-row">
       <span class="tx-dot" style="background:${c.color}"></span>
       <div class="tx-info"><div class="tx-desc">${t.desc||c.name}</div><div class="tx-cat">${c.name} · ${dateStr}</div></div>
@@ -532,6 +548,17 @@ function toast(msg){
   el.textContent=msg;el.classList.add('show');
   setTimeout(()=>el.classList.remove('show'),2000);
 }
+
+// Detecta virada de mês quando o usuário retorna ao app
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'){
+    document.getElementById('f-date').value=today();
+    // Se viewMonth está no futuro (pode ocorrer em virada), reset para hoje
+    const now=new Date(); now.setDate(1); now.setHours(0,0,0,0);
+    if(viewMonth>now){ viewMonth=new Date(); viewMonth.setDate(1); }
+    renderAll();
+  }
+});
 
 load();
 </script>
