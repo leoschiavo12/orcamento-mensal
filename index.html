@@ -93,6 +93,7 @@
     .sett-cat-top{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
     .sett-cat-top .cat-dot{cursor:pointer;}
     .sett-cat-top .cat-label{font-size:13px;color:#e8e8e6;flex:1;min-width:0;}
+    .cat-fixed-badge{font-size:10px;color:#555;border:1px solid #333;border-radius:4px;padding:1px 6px;flex-shrink:0;}
     .btn-del-cat{background:none;border:none;cursor:pointer;color:#444;font-size:13px;padding:0 2px;font-family:inherit;}
     .btn-del-cat:hover{color:#e05252;}
     .sett-cat-bot{display:flex;align-items:center;gap:8px;padding-left:17px;}
@@ -236,13 +237,14 @@ try{
   }
 }catch(e){console.warn('Firebase indisponível:',e);}
 
+const FIXED_ID='parcel';
 const DEFAULT_CONFIG={limit:8500,cats:[
-  {id:'alim',   name:'Alimentação',    color:'#D85A30', pct:28},
+  {id:'parcel', name:'Parcelamentos',  color:'#E5B800', pct:14, fixed:true},
+  {id:'alim',   name:'Alimentação',    color:'#D85A30', pct:20},
   {id:'transp', name:'Transporte',     color:'#BA7517', pct:10},
   {id:'lazer',  name:'Lazer',          color:'#D4537E', pct:5},
   {id:'cuidado',name:'Cuidado pessoal',color:'#7F77DD', pct:4},
   {id:'super',  name:'Supermercado',   color:'#639922', pct:8},
-  {id:'financ', name:'Financiamento',  color:'#378ADD', pct:14},
   {id:'assina', name:'Assinaturas',    color:'#888780', pct:2},
   {id:'saude',  name:'Saúde',          color:'#1D9E75', pct:4},
   {id:'outros', name:'Outros',         color:'#666666', pct:4},
@@ -262,13 +264,15 @@ async function load(){
   try{
     const[cs,ts]=await Promise.all([docConfig.get(),docTxs.get()]);
     if(cs.exists){
-      config=cs.data();
+      const d=cs.data();
+      if(d.cats) d.cats=d.cats.map(c=>({...c,fixed:c.id===FIXED_ID}));
+      config=d;
     }
     if(ts.exists) txs=ts.data().list||[];
     setSyncStatus('ok','Sincronizado');
   }catch(e){
     setSyncStatus('err','Sem conexão — dados locais');
-    try{const r=localStorage.getItem('ob_bkp_cfg');if(r)config=JSON.parse(r);}catch(_){}
+    try{const r=localStorage.getItem('ob_bkp_cfg');if(r){const d=JSON.parse(r);if(d.cats)d.cats=d.cats.map(c=>({...c,fixed:c.id===FIXED_ID}));config=d;}}catch(_){}
     try{const r=localStorage.getItem('ob_bkp_txs');if(r)txs=JSON.parse(r);}catch(_){}
   }
   init();
@@ -330,7 +334,7 @@ function buildSettingsView(){
         <span class="cat-dot" id="dot-${c.id}" style="background:${c.color};cursor:pointer;" onclick="document.getElementById('cp-${c.id}').click()"></span>
         <input type="color" id="cp-${c.id}" value="${c.color}" style="display:none;" oninput="document.getElementById('dot-${c.id}').style.background=this.value;">
         <span class="cat-label">${c.name}</span>
-        <button class="btn-del-cat" onclick="removeCategory('${c.id}')">✕</button>
+        ${c.fixed?'<span class="cat-fixed-badge">fixo</span>':`<button class="btn-del-cat" onclick="removeCategory('${c.id}')">✕</button>`}
       </div>
       <div class="sett-cat-bot">
         <input type="number" id="sett-${c.id}" value="${(lim*c.pct/100).toFixed(2)}" step="10" min="0" oninput="updatePctPreview()">
@@ -369,14 +373,16 @@ function addCategory(){
   const lim=parseFloat(document.getElementById('sett-limit').value)||config.limit;
   const curSum=config.cats.reduce((s,c)=>{const el=document.getElementById('sett-'+c.id);return s+(el?parseFloat(el.value)||0:catBudget(c));},0);
   if(lim>0&&(curSum+val)>lim){toast('Soma ultrapassaria o limite');return;}
-  config.cats.push({id:'cat_'+Date.now(),name,color,pct:lim>0?val/lim*100:0});
+  config.cats.push({id:'cat_'+Date.now(),name,color,pct:lim>0?val/lim*100:0,fixed:false});
   document.getElementById('nc-name').value='';document.getElementById('nc-val').value='';document.getElementById('nc-pct-badge').textContent='—';
   buildSettingsView();buildCatSelect();renderAll();toast(`"${name}" adicionada`);
 }
 
 function removeCategory(id){
   const c=config.cats.find(x=>x.id===id);
-  if(!c||!confirm(`Remover "${c.name}"?`))return;
+  if(!c)return;
+  if(c.fixed){toast('Parcelamentos é uma categoria fixa');return;}
+  if(!confirm(`Remover "${c.name}"?`))return;
   config.cats=config.cats.filter(x=>x.id!==id);
   buildSettingsView();buildCatSelect();renderAll();toast(`"${c.name}" removida`);
 }
@@ -489,16 +495,30 @@ function renderDash(){
   renderBars('dash-cats',list,sortedBySpend);
 }
 
-function renderPieChart(spent, available){
+function renderPieChart(totalSpent, available){
+  const parcelCat=config.cats.find(c=>c.id===FIXED_ID);
+  const listMonth=txsForMonth(viewMonth);
+  const parcelSpent=listMonth.filter(t=>t.cat===FIXED_ID).reduce((s,t)=>s+t.amt,0);
+  const otherSpent=Math.max(0,totalSpent-parcelSpent);
   const avail=Math.max(0,available);
-  const spent_=Math.max(0,spent);
-  const labels=['Gasto','Disponível'];
-  const data=[spent_,avail];
-  const colors=['#D85A30','#2a2a2a'];
-  const borderColors=['#D85A30','#333'];
+
+  // build slices, sort descending by value
+  const slices=[
+    {label:'Despesas',    value:otherSpent, color:'#D85A30'},
+    {label:'Parcelamentos',value:parcelSpent,color:(parcelCat&&parcelCat.color)||'#E5B800'},
+    {label:'Disponível',  value:avail,      color:'#2a2a2a'},
+  ].sort((a,b)=>b.value-a.value);
+
+  const labels=slices.map(s=>s.label);
+  const data=slices.map(s=>s.value);
+  const colors=slices.map(s=>s.color);
+  const borderColors=slices.map(s=>s.color==='#2a2a2a'?'#333':s.color);
 
   if(pieChart){
+    pieChart.data.labels=labels;
     pieChart.data.datasets[0].data=data;
+    pieChart.data.datasets[0].backgroundColor=colors;
+    pieChart.data.datasets[0].borderColor=borderColors;
     pieChart.update('none');
   } else {
     pieChart=new Chart(document.getElementById('pie-chart'),{
@@ -514,10 +534,10 @@ function renderPieChart(spent, available){
     });
   }
 
-  document.getElementById('pie-legend').innerHTML=labels.map((l,i)=>`
+  document.getElementById('pie-legend').innerHTML=slices.map(s=>`
     <span class="chart-leg-item">
-      <span class="chart-leg-sq" style="background:${colors[i]}"></span>
-      ${l}: ${fmt(data[i])} (${fmtPct(config.limit>0?data[i]/config.limit*100:0)})
+      <span class="chart-leg-sq" style="background:${s.color};${s.color==='#2a2a2a'?'border:1px solid #444;':''}"></span>
+      ${s.label}: ${fmt(s.value)} (${fmtPct(config.limit>0?s.value/config.limit*100:0)})
     </span>`).join('');
 }
 
