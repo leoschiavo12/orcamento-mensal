@@ -451,7 +451,11 @@ function changeMonth(d){
   renderAll();
 }
 
-function renderAll(){renderQuickBars();renderDash();renderHist();}
+function renderAll(){
+  try{renderQuickBars();}catch(e){console.error("renderQuickBars",e);}
+  try{renderDash();}catch(e){console.error("renderDash",e);}
+  try{renderHist();}catch(e){console.error("renderHist",e);}
+}
 
 // ── BARRAS (lançar + dashboard) ───────────────────────────
 function renderBars(container,list,sortFn){
@@ -503,7 +507,7 @@ function renderPieChart(totalSpent, available, parcelSpent, effectiveLimit){
   // build slices, sort descending by value
   const slices=[
     {label:'Despesas',    value:otherSpent, color:'#D85A30'},
-    {label:'Parcelamentos',value:parcelSpent,color:(parcelCat&&parcelCat.color)||'#E5B800'},
+    {label:'Parcelamentos',value:parcelSpent,color:'#E5B800'},
     {label:'Disponível',  value:avail,      color:'#2a2a2a'},
   ].sort((a,b)=>b.value-a.value);
 
